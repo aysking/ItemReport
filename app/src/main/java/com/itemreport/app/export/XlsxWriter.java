@@ -19,37 +19,49 @@ import java.util.zip.ZipOutputStream;
 public final class XlsxWriter {
 
     private static final String[] HEADERS = {
-            "ID", "Photo", "Item name", "Short description", "Area used in", "Quantity",
+            "ID", "Photo", "QR code", "Item name", "Short description", "Area used in", "Quantity",
             "Length", "Width", "Height", "Dim. unit", "Weight", "Weight unit",
             "Aisle", "Rack", "Shelf", "Condition", "Condition as of", "Photo taken"
     };
     private static final double[] COL_WIDTHS = {
-            14, 28, 26, 40, 20, 10, 10, 10, 10, 10, 10, 11, 10, 10, 10, 16, 20, 20
+            14, 28, 21, 26, 40, 20, 10, 10, 10, 10, 10, 10, 11, 10, 10, 10, 16, 20, 20
     };
 
     private static final int EMU = 9525;
     private static final int BOX_W = 189;
     private static final int BOX_H = 140;
     private static final int PAD = 6;
+    private static final int QR_BOX = 132;
+    private static final int QR_SCALE = 10;
 
     private XlsxWriter() {
     }
 
     private static final class Pic {
         final File file;
+        final byte[] bytes;
+        final String ext;
         final int row;
+        final int col;
         final int w;
         final int h;
 
-        Pic(File file, int row, int w, int h) {
+        Pic(File file, byte[] bytes, String ext, int row, int col, int w, int h) {
             this.file = file;
+            this.bytes = bytes;
+            this.ext = ext;
             this.row = row;
+            this.col = col;
             this.w = w;
             this.h = h;
         }
     }
 
-    public static void write(OutputStream os, ReportData data) throws IOException {
+    /**
+     * @param inCell true: pictures are placed inside the cells (Excel "Place in Cell");
+     *               false: pictures float over the cells (works in every spreadsheet app).
+     */
+    public static void write(OutputStream os, ReportData data, boolean inCell) throws IOException {
         ArrayList<Pic> pics = new ArrayList<>();
         StringBuilder rows = new StringBuilder();
 
@@ -65,7 +77,7 @@ public final class XlsxWriter {
                 if (f.isFile()) {
                     try {
                         JpegInfo info = JpegInfo.read(f);
-                        pics.add(new Pic(f, r, info.width, info.height));
+                        pics.add(new Pic(f, null, "jpeg", r, 1, info.width, info.height));
                         hasPic = true;
                     } catch (IOException ignored) {
                         hasPic = false;
@@ -74,30 +86,40 @@ public final class XlsxWriter {
             }
             rows.append("<row r=\"").append(r).append("\" ht=\"114\" customHeight=\"1\">");
             text(rows, 0, r, it.uid, 4);
-            text(rows, 1, r, hasPic ? "" : "No photo", 3);
-            text(rows, 2, r, it.name, 2);
-            text(rows, 3, r, it.description, 2);
-            text(rows, 4, r, it.area, 2);
-            value(rows, 5, r, it.quantity);
-            value(rows, 6, r, it.length);
-            value(rows, 7, r, it.width);
-            value(rows, 8, r, it.height);
-            text(rows, 9, r, it.dimUnit, 3);
-            value(rows, 10, r, it.weight);
-            text(rows, 11, r, it.weightUnit, 3);
-            text(rows, 12, r, it.aisle, 3);
-            text(rows, 13, r, it.rack, 3);
-            text(rows, 14, r, it.shelf, 3);
-            text(rows, 15, r, it.condition, 2);
-            text(rows, 16, r, it.conditionAt, 2);
-            text(rows, 17, r, it.photoTaken, 2);
+            if (hasPic && inCell) picCell(rows, 1, r, pics.size());
+            else text(rows, 1, r, hasPic ? "" : "No photo", 3);
+            boolean hasQr = it.qr != null && it.qr.length > 0;
+            if (hasQr) {
+                int side = it.qr.length * QR_SCALE;
+                pics.add(new Pic(null, PngWriter.fromMatrix(it.qr, QR_SCALE), "png", r, 2, side, side));
+            }
+            if (hasQr && inCell) picCell(rows, 2, r, pics.size());
+            else text(rows, 2, r, "", 3);
+            text(rows, 3, r, it.name, 2);
+            text(rows, 4, r, it.description, 2);
+            text(rows, 5, r, it.area, 2);
+            value(rows, 6, r, it.quantity);
+            value(rows, 7, r, it.length);
+            value(rows, 8, r, it.width);
+            value(rows, 9, r, it.height);
+            text(rows, 10, r, it.dimUnit, 3);
+            value(rows, 11, r, it.weight);
+            text(rows, 12, r, it.weightUnit, 3);
+            text(rows, 13, r, it.aisle, 3);
+            text(rows, 14, r, it.rack, 3);
+            text(rows, 15, r, it.shelf, 3);
+            text(rows, 16, r, it.condition, 2);
+            text(rows, 17, r, it.conditionAt, 2);
+            text(rows, 18, r, it.photoTaken, 2);
             rows.append("</row>");
             r++;
         }
         int lastRow = r - 1;
 
         try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(os, 1 << 16))) {
-            entry(zip, "[Content_Types].xml", contentTypes(!pics.isEmpty()));
+            boolean rich = inCell && !pics.isEmpty();
+            boolean floating = !inCell && !pics.isEmpty();
+            entry(zip, "[Content_Types].xml", contentTypes(floating, rich));
             entry(zip, "_rels/.rels",
                     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
                             + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
@@ -114,36 +136,91 @@ public final class XlsxWriter {
                             + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
                             + "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/>"
                             + "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
+                            + (rich
+                            ? "<Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sheetMetadata\" Target=\"metadata.xml\"/>"
+                            + "<Relationship Id=\"rId5\" Type=\"http://schemas.microsoft.com/office/2022/10/relationships/richValueRel\" Target=\"richData/richValueRel.xml\"/>"
+                            + "<Relationship Id=\"rId6\" Type=\"http://schemas.microsoft.com/office/2017/06/relationships/rdRichValue\" Target=\"richData/rdrichvalue.xml\"/>"
+                            + "<Relationship Id=\"rId7\" Type=\"http://schemas.microsoft.com/office/2017/06/relationships/rdRichValueStructure\" Target=\"richData/rdrichvaluestructure.xml\"/>"
+                            + "<Relationship Id=\"rId8\" Type=\"http://schemas.microsoft.com/office/2017/06/relationships/rdRichValueTypes\" Target=\"richData/rdRichValueTypes.xml\"/>"
+                            : "")
                             + "</Relationships>");
             entry(zip, "xl/styles.xml", styles());
-            entry(zip, "xl/worksheets/sheet1.xml", sheet1(rows, lastRow, !pics.isEmpty()));
+            entry(zip, "xl/worksheets/sheet1.xml", sheet1(rows, lastRow, floating));
             entry(zip, "xl/worksheets/sheet2.xml", sheet2(data));
 
-            if (!pics.isEmpty()) {
+            if (floating) {
                 entry(zip, "xl/worksheets/_rels/sheet1.xml.rels",
                         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
                                 + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
                                 + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing\" Target=\"../drawings/drawing1.xml\"/>"
                                 + "</Relationships>");
                 entry(zip, "xl/drawings/drawing1.xml", drawing(pics));
+                entry(zip, "xl/drawings/_rels/drawing1.xml.rels", imageRels(pics));
+            }
+            if (rich) {
+                int n = pics.size();
+                StringBuilder meta = new StringBuilder();
+                meta.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+                        .append("<metadata xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:xlrd=\"http://schemas.microsoft.com/office/spreadsheetml/2017/richdata\">")
+                        .append("<metadataTypes count=\"1\"><metadataType name=\"XLRICHVALUE\" minSupportedVersion=\"120000\" copy=\"1\" pasteAll=\"1\" pasteValues=\"1\" merge=\"1\" splitFirst=\"1\" rowColShift=\"1\" clearFormats=\"1\" clearComments=\"1\" assign=\"1\" coerce=\"1\"/></metadataTypes>")
+                        .append("<futureMetadata name=\"XLRICHVALUE\" count=\"").append(n).append("\">");
+                for (int i = 0; i < n; i++) {
+                    meta.append("<bk><extLst><ext uri=\"{3e2802c4-a4d2-4d8b-9148-e3be6c30e623}\"><xlrd:rvb i=\"")
+                            .append(i).append("\"/></ext></extLst></bk>");
+                }
+                meta.append("</futureMetadata><valueMetadata count=\"").append(n).append("\">");
+                for (int i = 0; i < n; i++) {
+                    meta.append("<bk><rc t=\"1\" v=\"").append(i).append("\"/></bk>");
+                }
+                meta.append("</valueMetadata></metadata>");
+                entry(zip, "xl/metadata.xml", meta.toString());
+
+                StringBuilder rv = new StringBuilder();
+                rv.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+                        .append("<rvData xmlns=\"http://schemas.microsoft.com/office/spreadsheetml/2017/richdata\" count=\"")
+                        .append(n).append("\">");
+                for (int i = 0; i < n; i++) {
+                    rv.append("<rv s=\"0\"><v>").append(i).append("</v><v>5</v></rv>");
+                }
+                rv.append("</rvData>");
+                entry(zip, "xl/richData/rdrichvalue.xml", rv.toString());
+                entry(zip, "xl/richData/rdrichvaluestructure.xml",
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                                + "<rvStructures xmlns=\"http://schemas.microsoft.com/office/spreadsheetml/2017/richdata\" count=\"1\">"
+                                + "<s t=\"_localImage\"><k n=\"_rvRel:LocalImageIdentifier\" t=\"i\"/><k n=\"CalcOrigin\" t=\"i\"/></s></rvStructures>");
+                StringBuilder types = new StringBuilder();
+                types.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+                        .append("<rvTypesInfo xmlns=\"http://schemas.microsoft.com/office/spreadsheetml/2017/richdata2\" xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\" mc:Ignorable=\"x\" xmlns:x=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">")
+                        .append("<global><keyFlags><key name=\"_Self\"><flag name=\"ExcludeFromFile\" value=\"1\"/><flag name=\"ExcludeFromCalcComparison\" value=\"1\"/></key>");
+                String[] keys = {"_DisplayString", "_Flags", "_Format", "_SubLabel", "_Attribution",
+                        "_Icon", "_Display", "_CanonicalPropertyNames", "_ClassificationId"};
+                for (String k : keys) {
+                    types.append("<key name=\"").append(k)
+                            .append("\"><flag name=\"ExcludeFromCalcComparison\" value=\"1\"/></key>");
+                }
+                types.append("</keyFlags></global></rvTypesInfo>");
+                entry(zip, "xl/richData/rdRichValueTypes.xml", types.toString());
+
                 StringBuilder rel = new StringBuilder();
                 rel.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
-                        .append("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
-                for (int i = 0; i < pics.size(); i++) {
-                    rel.append("<Relationship Id=\"rId").append(i + 1)
-                            .append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image")
-                            .append(i + 1).append(".jpeg\"/>");
-                }
-                rel.append("</Relationships>");
-                entry(zip, "xl/drawings/_rels/drawing1.xml.rels", rel.toString());
-
+                        .append("<richValueRels xmlns=\"http://schemas.microsoft.com/office/spreadsheetml/2022/richvaluerel\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">");
+                for (int i = 0; i < n; i++) rel.append("<rel r:id=\"rId").append(i + 1).append("\"/>");
+                rel.append("</richValueRels>");
+                entry(zip, "xl/richData/richValueRel.xml", rel.toString());
+                entry(zip, "xl/richData/_rels/richValueRel.xml.rels", imageRels(pics));
+            }
+            if (!pics.isEmpty()) {
                 byte[] buf = new byte[1 << 16];
                 for (int i = 0; i < pics.size(); i++) {
-                    ZipEntry ze = new ZipEntry("xl/media/image" + (i + 1) + ".jpeg");
-                    zip.putNextEntry(ze);
-                    try (InputStream in = new BufferedInputStream(new FileInputStream(pics.get(i).file))) {
-                        int n;
-                        while ((n = in.read(buf)) > 0) zip.write(buf, 0, n);
+                    Pic p = pics.get(i);
+                    zip.putNextEntry(new ZipEntry("xl/media/image" + (i + 1) + "." + p.ext));
+                    if (p.bytes != null) {
+                        zip.write(p.bytes);
+                    } else {
+                        try (InputStream in = new BufferedInputStream(new FileInputStream(p.file))) {
+                            int n;
+                            while ((n = in.read(buf)) > 0) zip.write(buf, 0, n);
+                        }
                     }
                     zip.closeEntry();
                 }
@@ -151,19 +228,46 @@ public final class XlsxWriter {
         }
     }
 
-    private static String contentTypes(boolean images) {
+    private static String imageRels(ArrayList<Pic> pics) {
+        StringBuilder rel = new StringBuilder();
+        rel.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+                .append("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+        for (int i = 0; i < pics.size(); i++) {
+            rel.append("<Relationship Id=\"rId").append(i + 1)
+                    .append("\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image")
+                    .append(i + 1).append('.').append(pics.get(i).ext).append("\"/>");
+        }
+        rel.append("</Relationships>");
+        return rel.toString();
+    }
+
+    /** A cell holding picture number {@code index} (1-based) as an in-cell image. */
+    private static void picCell(StringBuilder sb, int col, int row, int index) {
+        sb.append("<c r=\"").append(colName(col)).append(row).append("\" s=\"3\" t=\"e\" vm=\"")
+                .append(index).append("\"><v>#VALUE!</v></c>");
+    }
+
+    private static String contentTypes(boolean images, boolean rich) {
         StringBuilder sb = new StringBuilder();
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
                 .append("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">")
                 .append("<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>")
                 .append("<Default Extension=\"xml\" ContentType=\"application/xml\"/>")
                 .append("<Default Extension=\"jpeg\" ContentType=\"image/jpeg\"/>")
+                .append("<Default Extension=\"png\" ContentType=\"image/png\"/>")
                 .append("<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>")
                 .append("<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
                 .append("<Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>")
                 .append("<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>");
         if (images) {
             sb.append("<Override PartName=\"/xl/drawings/drawing1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.drawing+xml\"/>");
+        }
+        if (rich) {
+            sb.append("<Override PartName=\"/xl/metadata.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml\"/>")
+                    .append("<Override PartName=\"/xl/richData/rdRichValueTypes.xml\" ContentType=\"application/vnd.ms-excel.rdrichvaluetypes+xml\"/>")
+                    .append("<Override PartName=\"/xl/richData/rdrichvalue.xml\" ContentType=\"application/vnd.ms-excel.rdrichvalue+xml\"/>")
+                    .append("<Override PartName=\"/xl/richData/rdrichvaluestructure.xml\" ContentType=\"application/vnd.ms-excel.rdrichvaluestructure+xml\"/>")
+                    .append("<Override PartName=\"/xl/richData/richValueRel.xml\" ContentType=\"application/vnd.ms-excel.richvaluerel+xml\"/>");
         }
         sb.append("</Types>");
         return sb.toString();
@@ -255,17 +359,19 @@ public final class XlsxWriter {
                 .append("xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">");
         for (int i = 0; i < pics.size(); i++) {
             Pic p = pics.get(i);
-            double scale = Math.min((double) BOX_W / p.w, (double) BOX_H / p.h);
+            int boxW = p.col == 1 ? BOX_W : QR_BOX;
+            int boxH = p.col == 1 ? BOX_H : QR_BOX;
+            double scale = Math.min((double) boxW / p.w, (double) boxH / p.h);
             long cx = Math.round(p.w * scale * EMU);
             long cy = Math.round(p.h * scale * EMU);
-            long offX = (long) PAD * EMU + (Math.round((double) BOX_W * EMU) - cx) / 2;
-            long offY = (long) PAD * EMU + (Math.round((double) BOX_H * EMU) - cy) / 2;
-            sb.append("<xdr:oneCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:colOff>").append(offX)
+            long offX = (long) PAD * EMU + ((long) boxW * EMU - cx) / 2;
+            long offY = (long) PAD * EMU + ((long) BOX_H * EMU - cy) / 2;
+            sb.append("<xdr:oneCellAnchor><xdr:from><xdr:col>").append(p.col).append("</xdr:col><xdr:colOff>").append(offX)
                     .append("</xdr:colOff><xdr:row>").append(p.row - 1).append("</xdr:row><xdr:rowOff>")
                     .append(offY).append("</xdr:rowOff></xdr:from>")
                     .append("<xdr:ext cx=\"").append(cx).append("\" cy=\"").append(cy).append("\"/>")
                     .append("<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"").append(i + 2)
-                    .append("\" name=\"Photo ").append(i + 1).append("\"/>")
+                    .append("\" name=\"Picture ").append(i + 1).append("\"/>")
                     .append("<xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr>")
                     .append("<xdr:blipFill><a:blip r:embed=\"rId").append(i + 1)
                     .append("\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>")

@@ -26,4 +26,7 @@ public final class ExportItem {
     public String dimensionsText = "";
     public String weightText = "";
     public String locationText = "";
+
+    /** QR code modules, [row][column], true = dark. Includes the quiet zone. May be null. */
+    public boolean[][] qr;
 }

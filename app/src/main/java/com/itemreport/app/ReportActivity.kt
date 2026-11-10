@@ -169,7 +169,8 @@ class ReportActivity : AppCompatActivity() {
         val options = arrayOf<CharSequence>(
             "PDF – compact (about 3 items per page)",
             "PDF – large photos (1 item per page)",
-            "Excel (.xlsx) with photos"
+            "Excel \u2013 pictures in cells (Excel 365 / 2021+)",
+            "Excel \u2013 floating pictures (any spreadsheet app)"
         )
         MaterialAlertDialogBuilder(this)
             .setTitle("Export report")

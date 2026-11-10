@@ -30,7 +30,10 @@ object Exporter {
 
     const val PDF_COMPACT = 0
     const val PDF_LARGE = 1
+    /** Excel with pictures placed inside the cells. */
     const val XLSX = 2
+    /** Excel with pictures floating over the cells. */
+    const val XLSX_FLOAT = 3
 
     const val MIME_PDF = "application/pdf"
     const val MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -94,10 +97,13 @@ object Exporter {
             e.weightText = weightText(item)
             e.locationText = locationText(item)
             val photo = item.photoFinal
-            if (photo != null && File(photo).isFile) {
+            val hasPhoto = photo != null && File(photo).isFile
+            if (hasPhoto) {
                 e.photoPath = photo
                 e.photoTaken = formatTime(item.photoAt)
             }
+            val captured = Qr.captureTime(hasPhoto, item.photoAt, item.conditionAt)
+            e.qr = Qr.matrix(Qr.text(item.uid, item.name, captured))
             data.items.add(e)
         }
 
@@ -112,13 +118,14 @@ object Exporter {
         if (base.length > 40) base = base.substring(0, 40)
         if (base.isEmpty()) base = "report"
         val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-        val ext = if (kind == XLSX) ".xlsx" else ".pdf"
+        val excel = kind == XLSX || kind == XLSX_FLOAT
+        val ext = if (excel) ".xlsx" else ".pdf"
         val file = File(dir, base + "_" + stamp + ext)
 
         try {
             FileOutputStream(file).use { os ->
-                if (kind == XLSX) {
-                    XlsxWriter.write(os, data)
+                if (excel) {
+                    XlsxWriter.write(os, data, kind == XLSX)
                 } else {
                     ReportPdf.write(os, data, kind == PDF_LARGE, AndroidRasterizer())
                 }

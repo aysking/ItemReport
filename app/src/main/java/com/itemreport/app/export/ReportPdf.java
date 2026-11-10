@@ -137,13 +137,18 @@ public final class ReportPdf {
             rows.add(new String[]{"Photo taken", it.photoTaken});
         }
 
+        boolean hasQr = it.qr != null && it.qr.length > 0;
+        float qrSize = 66f;
+        float valueW = fw - labelW - (hasQr ? qrSize + 10 : 0);
+
         ArrayList<Block> values = new ArrayList<>();
         float fieldsH = 0;
         for (String[] row : rows) {
-            Block v = prep(row[1], fw - labelW, 9.5f, false, INK, 12);
+            Block v = prep(row[1], valueW, 9.5f, false, INK, 12);
             values.add(v);
             fieldsH += Math.max(v.height, 12f) + 4;
         }
+        if (hasQr) fieldsH = Math.max(fieldsH, qrSize + 4);
 
         float total = large ? headH + photoH + 14 + fieldsH + 10
                 : headH + Math.max(photoH, fieldsH) + 22;
@@ -182,6 +187,8 @@ public final class ReportPdf {
 
         // fields
         float fy = large ? top + photoH + 14 : top;
+        float fieldsTop = fy;
+        if (hasQr) drawQr(it.qr, M + CW - qrSize, fieldsTop, qrSize);
         for (int i = 0; i < rows.size(); i++) {
             Block v = values.get(i);
             pdf.text(rows.get(i)[0], fx, fy + 1, 8, false, MUTED);
@@ -189,11 +196,32 @@ public final class ReportPdf {
             fy += Math.max(v.height, 12f) + 4;
         }
 
+        if (hasQr) fy = Math.max(fy, fieldsTop + qrSize + 4);
         float end = large ? fy : Math.max(top + photoH, fy);
         y = end + 10;
         if (!large) {
             pdf.line(M, y, M + CW, y, RULE, 0.5f);
             y += 12;
+        }
+    }
+
+    private void drawQr(boolean[][] qr, float x, float yTop, float size) {
+        int n = qr.length;
+        float m = size / n;
+        pdf.fillRect(x, yTop, size, size, WHITE);
+        for (int row = 0; row < n; row++) {
+            boolean[] line = qr[row];
+            int col = 0;
+            while (col < line.length) {
+                if (!line[col]) {
+                    col++;
+                    continue;
+                }
+                int start = col;
+                while (col < line.length && line[col]) col++;
+                // Slight overlap hides hairline gaps between neighbouring modules.
+                pdf.fillRect(x + start * m, yTop + row * m, (col - start) * m + 0.03f, m + 0.03f, 0x000000);
+            }
         }
     }
 

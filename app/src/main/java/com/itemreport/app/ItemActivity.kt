@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.widget.doAfterTextChanged
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -77,6 +78,9 @@ class ItemActivity : AppCompatActivity() {
     private lateinit var btnDate: MaterialButton
     private lateinit var btnTime: MaterialButton
     private lateinit var btnSave: MaterialButton
+    private lateinit var qrView: ImageView
+    private lateinit var qrCaption: TextView
+    private var uidText = ""
 
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
@@ -135,6 +139,8 @@ class ItemActivity : AppCompatActivity() {
         btnDate = findViewById(R.id.btnDate)
         btnTime = findViewById(R.id.btnTime)
         btnSave = findViewById(R.id.btnSave)
+        qrView = findViewById(R.id.qrImage)
+        qrCaption = findViewById(R.id.qrCaption)
 
         dimUnitEt.setSimpleItems(arrayOf("cm", "mm", "m", "in", "ft"))
         weightUnitEt.setSimpleItems(arrayOf("kg", "g", "lb", "t"))
@@ -144,10 +150,12 @@ class ItemActivity : AppCompatActivity() {
 
         if (existing != null) {
             title = "Edit item"
+            uidText = existing.uid
             uidLabel.text = "ID  " + existing.uid
         } else {
             title = "New item"
-            uidLabel.text = "ID  " + Db.formatUid(report.prefix, report.nextSeq)
+            uidText = Db.formatUid(report.prefix, report.nextSeq)
+            uidLabel.text = "ID  " + uidText
         }
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -201,6 +209,7 @@ class ItemActivity : AppCompatActivity() {
         btnDate.setOnClickListener { pickDate() }
         btnTime.setOnClickListener { pickTime() }
         btnSave.setOnClickListener { save() }
+        nameEt.doAfterTextChanged { refreshQr() }
 
         refreshConditionButtons()
         refreshPhoto()
@@ -352,7 +361,20 @@ class ItemActivity : AppCompatActivity() {
         }
     }
 
+    private fun refreshQr() {
+        val captured = Qr.captureTime(photoOrig != null, photoAt, conditionAt)
+        val text = Qr.text(uidText, nameEt.text.toString().trim(), captured)
+        val matrix = Qr.matrix(text)
+        if (matrix != null) {
+            qrView.setImageBitmap(Qr.bitmap(matrix, 8))
+        } else {
+            qrView.setImageDrawable(null)
+        }
+        qrCaption.text = text
+    }
+
     private fun refreshStampPreview() {
+        refreshQr()
         if (photoOrig != null && stampSwitch.isChecked) {
             stampPreview.text = Exporter.formatTime(photoAt)
             stampPreview.visibility = View.VISIBLE
@@ -364,6 +386,7 @@ class ItemActivity : AppCompatActivity() {
     // ---------- condition date and time ----------
 
     private fun refreshConditionButtons() {
+        refreshQr()
         btnDate.text = Exporter.formatDate(conditionAt)
         btnTime.text = Exporter.formatClock(conditionAt)
     }

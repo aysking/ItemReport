@@ -16,6 +16,7 @@ Android app for recording items with photos and exporting the list as a PDF or E
 | Weight | With unit. |
 | Storage location | Aisle, rack, shelf. |
 | Condition | With the date and time it was recorded. |
+| QR code | Generated automatically; holds the item ID, item name and capture date. |
 
 ## Export
 
@@ -23,7 +24,8 @@ Open a report and tap **Export**:
 
 - **PDF, compact** - about three items per A4 page.
 - **PDF, large photos** - one item per page.
-- **Excel (.xlsx)** - one row per item with the photo in the row.
+- **Excel, pictures in cells** - one row per item; photo and QR code are placed inside their cells (needs Excel 365 / 2021 or newer).
+- **Excel, floating pictures** - same sheet with pictures floating over the cells, for other spreadsheet apps.
 
 Photos are embedded at full resolution (the original JPEG bytes, not a re-compressed copy), so
 zooming into the PDF or enlarging the picture in Excel shows full detail. The file can then be
