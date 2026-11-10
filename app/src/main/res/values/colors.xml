@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#0F5C6E</color>
+    <color name="photo_bg">#1F6B7280</color>
+    <color name="stamp_bg">#99000000</color>
+</resources>
