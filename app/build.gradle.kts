@@ -7,12 +7,12 @@ val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 
 android {
     namespace = "com.itemreport.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.itemreport.app"
+        applicationId = "com.aysking.itemreport"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = buildNumber
         versionName = "1.0.$buildNumber"
     }
